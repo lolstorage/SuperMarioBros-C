@@ -1,0 +1,95 @@
+name: Build SuperMarioBros-C
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.os }} - ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+          - os: ubuntu-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+          - os: windows-latest
+            compiler: msvc
+          - os: macos-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies - Ubuntu
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libsdl2-dev libsdl2-mixer-dev libboost-all-dev flex bison
+
+      - name: Install dependencies - macOS
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install cmake sdl2 sdl2_mixer boost flex bison
+          echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix flex)/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies - Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          # Use vcpkg for SDL2 + Boost on Windows
+          vcpkg install sdl2:x64-windows sdl2-mixer:x64-windows boost:x64-windows
+        shell: powershell
+
+      - name: Configure CMake - Unix
+        if: matrix.os!= 'windows-latest'
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          mkdir build
+          cd build
+          cmake.. -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure CMake - Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir build
+          cd build
+          cmake.. -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release
+        shell: powershell
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Upload artifact - Linux/macOS
+        if: matrix.os!= 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smbc-${{ matrix.os }}-${{ matrix.compiler }}
+          path: build/smbc
+          if-no-files-found: error
+
+      - name: Upload artifact - Windows
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smbc-${{ matrix.os }}-${{ matrix.compiler }}
+          path: build/Release/smbc.exe
+          if-no-files-found: error
